@@ -3,6 +3,8 @@ import type { Resolver, AddonPackage, Package } from '.';
 import { explicitRelative, extensionsPattern } from '.';
 import { compile } from './js-handlebars';
 
+import { decodeVirtualVendorStyles, renderVendorStyles } from './virtual-vendor-styles';
+
 const externalESPrefix = '/@embroider/ext-es/';
 const externalCJSPrefix = '/@embroider/ext-cjs/';
 
@@ -38,6 +40,11 @@ export function virtualContent(filename: string, resolver: Resolver): VirtualCon
   let im = decodeImplicitModules(filename);
   if (im) {
     return renderImplicitModules(im, resolver);
+  }
+
+  let isVendorStyles = decodeVirtualVendorStyles(filename);
+  if (isVendorStyles) {
+    return renderVendorStyles(filename, resolver);
   }
 
   throw new Error(`not an @embroider/core virtual file: ${filename}`);
