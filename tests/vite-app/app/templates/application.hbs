@@ -3,6 +3,15 @@
 <Example @message={{this.model.message}} />
 <Old @message={{this.model.message}} />
 
+<TagInput
+  @tags={{this.tags}}
+  @addTag={{this.addTag}}
+  @removeTagAtIndex={{this.removeTagAtIndex}}
+  as |tag|
+>
+  {{tag}}
+</TagInput>
+
 <WelcomePage />
 {{! Feel free to remove this! }}
 
