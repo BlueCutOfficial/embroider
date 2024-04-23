@@ -1,5 +1,6 @@
 import { throwOnWarnings } from '@embroider/core';
 import { lstatSync, readFileSync } from 'fs';
+import globby from 'globby';
 import { merge } from 'lodash';
 import QUnit from 'qunit';
 import type { PreparedApp } from 'scenario-tester';
@@ -169,6 +170,63 @@ appScenarios
           // and has a 200 status (for index.html being returned correctly)
           text = await response.text();
           assert.true(!text.includes('<!DOCTYPE html>'));
+        } finally {
+          await server.shutdown();
+        }
+      });
+    });
+  });
+
+appScenarios
+  .map('compat-addon-classic-features-virtual-styles', project => {
+    let myAddon = baseAddon();
+    myAddon.pkg.name = 'my-addon';
+    merge(myAddon.files, {
+      addon: {
+        styles: {
+          'addon.css': `
+            .my-addon-p { color: blue; }
+          `,
+        },
+      },
+    });
+    project.addDependency(myAddon);
+  })
+  .forEachScenario(scenario => {
+    Qmodule(scenario.name, function (hooks) {
+      let app: PreparedApp;
+      hooks.before(async () => {
+        app = await scenario.prepare();
+      });
+
+      test('virtual styles are included in the CSS of the build', async function (assert) {
+        let result = await app.execute('pnpm build', {
+          env: {
+            // Force building tests so test-support.css styles are present
+            FORCE_BUILD_TESTS: 'true',
+          },
+        });
+        assert.equal(result.exitCode, 0, result.output);
+
+        // Both vendor.css and test-support.css are included in the fingerprinted main.css file
+        let [mainStyles] = await globby('dist/assets/main-*.css', { cwd: app.dir });
+        let content = readFileSync(mainStyles).toString();
+        assert.true(content.includes('.my-addon-p{color:#00f}'));
+        assert.true(content.includes('#qunit-tests'));
+      });
+
+      test('virtual styles are served in dev mode', async function (assert) {
+        const server = CommandWatcher.launch('vite', ['--clearScreen', 'false'], { cwd: app.dir });
+        try {
+          const [, url] = await server.waitFor(/Local:\s+(https?:\/\/.*)\//g);
+
+          let response = await fetch(`${url}/@embroider/core/vendor.css?direct`);
+          let text = await response.text();
+          assert.true(text.includes('.my-addon-p { color: blue; }'));
+
+          response = await fetch(`${url}/@embroider/core/test-support.css?direct`);
+          text = await response.text();
+          assert.true(!text.includes('#qunit-tests'));
         } finally {
           await server.shutdown();
         }
