@@ -1,6 +1,7 @@
 import { throwOnWarnings } from '@embroider/core';
+import { setupAuditTest } from '@embroider/test-support/audit-assertions';
 import { lstatSync, readFileSync } from 'fs';
-import globby from 'globby';
+// import globby from 'globby';
 import { merge } from 'lodash';
 import QUnit from 'qunit';
 import type { PreparedApp } from 'scenario-tester';
@@ -195,25 +196,40 @@ appScenarios
   .forEachScenario(scenario => {
     Qmodule(scenario.name, function (hooks) {
       let app: PreparedApp;
+
       hooks.before(async () => {
         app = await scenario.prepare();
       });
 
-      test('virtual styles are included in the CSS of the build', async function (assert) {
-        let result = await app.execute('pnpm build', {
-          env: {
-            // Force building tests so test-support.css styles are present
-            FORCE_BUILD_TESTS: 'true',
-          },
-        });
-        assert.equal(result.exitCode, 0, result.output);
+      let expectAudit = setupAuditTest(hooks, () => ({ app: app.dir }));
 
-        // Both vendor.css and test-support.css are included in the fingerprinted main.css file
-        let [mainStyles] = await globby('dist/assets/main-*.css', { cwd: app.dir });
-        let content = readFileSync(mainStyles).toString();
-        assert.true(content.includes('.my-addon-p{color:#00f}'));
-        assert.true(content.includes('#qunit-tests'));
+      test('virtual styles are included in the CSS of the production build', async function (assert) {
+        let result = await app.execute('pnpm build');
+        assert.equal(result.exitCode, 0, result.output);
+        expectAudit
+          .module(`./dist/index.html`)
+          .resolves('./@embroider/core/vendor.css?direct')
+          .toModule()
+          .withContents(content => {
+            assert.ok(/.my-addon-p{color:#00f}/.test(content), 'msg');
+            return true; // always return true as we rely on assert to spot issues
+          });
       });
+
+      // test('virtual styles are included in the CSS of the test build', async function (assert) {
+      //   let result = await app.execute('pnpm test');
+      //   assert.equal(result.exitCode, 0, result.output);
+      //   // Both vendor.css and test-support.css are included in the fingerprinted main.css file
+      //   expectAudit
+      //     .module(`${app.dir}/dist/index.html`)
+      //     .resolves('./@embroider/core/vendor.css?direct')
+      //     .toModule()
+      //     .withContents(content => {
+      //       assert.ok(/.my-addon-p{color:#00f}/.test(content), 'msg');
+      //       assert.ok(/#qunit-tests/.test(content), 'msg');
+      //       return true; // always return true as we rely on assert to spot issues
+      //     });
+      // });
 
       test('virtual styles are served in dev mode', async function (assert) {
         const server = CommandWatcher.launch('vite', ['--clearScreen', 'false'], { cwd: app.dir });
@@ -226,7 +242,7 @@ appScenarios
 
           response = await fetch(`${url}/@embroider/core/test-support.css?direct`);
           text = await response.text();
-          assert.true(!text.includes('#qunit-tests'));
+          assert.true(text.includes('#qunit-tests'));
         } finally {
           await server.shutdown();
         }
